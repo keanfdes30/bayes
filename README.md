@@ -20,4 +20,5 @@ npm run dev
 
 python server/server.py
 ```
+This is a Bayes Network solver modelled on the Netica application which determines marginal probabilities for node fields using network structure and conditional probability tables.
 ![image](https://github.com/user-attachments/assets/c1cd7f38-bc16-4384-8245-868aefc7ae5a)
