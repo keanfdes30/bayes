@@ -13,9 +13,85 @@ const BayesNetwork = () => {
   const [edgeStart, setEdgeStart] = useState(null);
   const [altClickNode, setAltClickNode] = useState(null);
   const [inputValues, setInputValues] = useState([]); // Move this to the top with other states
+  const [solvedProbabilities, setSolvedProbabilities] = useState(null);
   const svgRef = useRef(null);
 
-    // Add useEffect at component level
+ // Helper function to generate conditional probabilities
+  const generateConditionalProbabilities = (node, network) => {
+    // Get all parent nodes
+    const parentNodes = network.edges
+      .filter(e => e.to === node.id)
+      .map(e => network.nodes.find(n => n.id === e.from))
+      .filter(Boolean);
+
+    if (parentNodes.length === 0) return [];
+
+    // Generate all possible combinations of parent field values
+    const generateCombinations = (parents, current = [], index = 0) => {
+      if (index === parents.length) {
+        return [current];
+      }
+      
+      const combinations = [];
+      const parentNode = parents[index];
+      parentNode.fields.forEach(field => {
+        combinations.push(...generateCombinations(
+          parents,
+          [...current, field.name],
+          index + 1
+        ));
+      });
+      return combinations;
+    };
+
+    const parentCombinations = generateCombinations(parentNodes);
+    return parentCombinations.map(combination => ({
+      parentCombination: combination,
+      value: 0
+    }));
+  };
+
+  // Handle node click for edge creation
+  const handleNodeClick = (node) => {
+    if (isAddingEdge) {
+      if (!edgeStart) {
+        setEdgeStart(node);
+      } else if (node.id !== edgeStart.id) {
+        // Create deep copy first
+        const deepCopyNetwork = JSON.parse(JSON.stringify(network));
+        
+        // Add new edge
+        const newEdge = {
+          id: `edge-${deepCopyNetwork.edges.length + 1}`,
+          from: edgeStart.id,
+          to: node.id
+        };
+        deepCopyNetwork.edges.push(newEdge);
+
+        // Update child node's conditional probabilities
+        const childNodeIndex = deepCopyNetwork.nodes.findIndex(n => n.id === node.id);
+        if (childNodeIndex !== -1) {
+          const updatedChildNode = {
+            ...deepCopyNetwork.nodes[childNodeIndex],
+            fields: deepCopyNetwork.nodes[childNodeIndex].fields.map(field => ({
+              ...field,
+              conditionalProbabilities: generateConditionalProbabilities(
+                deepCopyNetwork.nodes[childNodeIndex], 
+                deepCopyNetwork
+              )
+            }))
+          };
+          deepCopyNetwork.nodes[childNodeIndex] = updatedChildNode;
+        }
+
+        // Set the updated network
+        setNetwork(deepCopyNetwork);
+        setIsAddingEdge(false);
+        setEdgeStart(null);
+      }
+    }
+  };
+  // Add useEffect at component level
   useEffect(() => {
     if (altClickNode) {
       const table = generateProbabilityTable(altClickNode);
@@ -27,10 +103,11 @@ const BayesNetwork = () => {
       }
     }
   }, [altClickNode]);
+
   const addNode = () => {
     const newNode = {
-      id: `node-${network.nodes.length + 1}`,
-      name: `Node ${network.nodes.length + 1}`,
+      id: network.nodes.length ,
+      name: `Node ${network.nodes.length}`,
       position: {
         x: 100 + (network.nodes.length * 100),
         y: 100
@@ -43,49 +120,65 @@ const BayesNetwork = () => {
     }));
   };
 
+  // Add field to node
+  const addField = () => {
+    if (editingNode && newFieldName.trim()) {
+      setNetwork(prev => {
+        // First create a deep copy of the network
+        const updatedNetwork = JSON.parse(JSON.stringify(prev));
+        
+        // Find and update the node we're adding a field to
+        const nodeIndex = updatedNetwork.nodes.findIndex(n => n.id === editingNode.id);
+        if (nodeIndex !== -1) {
+          const node = updatedNetwork.nodes[nodeIndex];
+          const fieldExists = node.fields.some(field => field.name === newFieldName.trim());
+          
+          if (!fieldExists) {
+            // Add the new field to the node
+            const newField = {
+              name: newFieldName.trim(),
+              value: 0,
+              conditionalProbabilities: generateConditionalProbabilities(node, updatedNetwork)
+            };
+            node.fields.push(newField);
+            
+            // Find all child nodes of this node
+            const childNodes = updatedNetwork.edges
+              .filter(edge => edge.from === node.id)
+              .map(edge => updatedNetwork.nodes.find(n => n.id === edge.to));
+            
+            // Update conditional probabilities for all child nodes
+            childNodes.forEach(childNode => {
+              if (childNode) {
+                const childNodeIndex = updatedNetwork.nodes.findIndex(n => n.id === childNode.id);
+                updatedNetwork.nodes[childNodeIndex] = {
+                  ...childNode,
+                  fields: childNode.fields.map(field => ({
+                    ...field,
+                    conditionalProbabilities: generateConditionalProbabilities(childNode, updatedNetwork)
+                  }))
+                };
+              }
+            });
+          }
+        }
+        
+        // Update the editing node reference
+        const updatedEditingNode = updatedNetwork.nodes.find(n => n.id === editingNode.id);
+        if (updatedEditingNode) {
+          setEditingNode(updatedEditingNode);
+        }
+        
+        return updatedNetwork;
+      });
+      setNewFieldName('');
+    }
+  };
+
   const startEdgeCreation = () => {
     setIsAddingEdge(true);
     setEdgeStart(null);
   };
-
-const handleNodeClick = (node) => {
-  if (isAddingEdge) {
-    if (!edgeStart) {
-      setEdgeStart(node);
-    } else if (node.id !== edgeStart.id) {
-      const newEdge = {
-        id: `edge-${network.edges.length + 1}`,
-        from: edgeStart.id,
-        to: node.id
-      };
-
-      // After adding new edge, reset conditional probabilities of child node
-      setNetwork(prev => {
-        const updatedNetwork = {
-          ...prev,
-          edges: [...prev.edges, newEdge],
-          nodes: prev.nodes.map(n => {
-            if (n.id === node.id) {  // This is the child node
-              return {
-                ...n,
-                fields: n.fields.map(field => ({
-                  ...field,
-                  conditionalProbabilities: []  // Reset conditional probabilities
-                }))
-              };
-            }
-            return n;
-          })
-        };
-        console.log("Updated network after edge addition:", updatedNetwork);
-        return updatedNetwork;
-      });
-
-      setIsAddingEdge(false);
-      setEdgeStart(null);
-    }
-  }
-};
 
   const startDragging = (e, nodeId) => {
     if (!isAddingEdge) {
@@ -161,29 +254,6 @@ const handleNodeClick = (node) => {
     }
   };
 
-  const addField = () => {
-    if (editingNode && newFieldName.trim()) {
-      setNetwork(prev => ({
-        ...prev,
-        nodes: prev.nodes.map(node => {
-          if (node.id === editingNode.id) {
-            const fieldExists = node.fields.some(field => field.name === newFieldName.trim());
-            if (!fieldExists) {
-              const updatedNode = {
-                ...node,
-                fields: [...node.fields, { name: newFieldName.trim(), value: 0 }]
-              };
-              setEditingNode(updatedNode);
-              return updatedNode;
-            }
-          }
-          return node;
-        })
-      }));
-      setNewFieldName('');
-    }
-  };
-
   const removeField = (fieldName) => {
     setNetwork(prev => ({
       ...prev,
@@ -208,66 +278,64 @@ const handleNodeClick = (node) => {
       .map(edge => network.nodes.find(n => n.id === edge.from));
   };
 
-const updateProbability = (nodeId, rowId, colIndex, newValue) => {
-  setNetwork(prev => {
-    
-    const updatedNodes = prev.nodes.map(node => {
-      if (node.id === nodeId) {
-        const parents = getNodeParents(nodeId);
-        
-        if (parents.length === 0) {
-          const updatedFields = node.fields.map((field, idx) => {
-            if (idx === rowId) {
-              return { ...field, value: newValue };
-            }
-            return field;
-          });
-          return { ...node, fields: updatedFields };
-        } else {
-          // Add debug logs
-          console.log("Received colIndex:", colIndex);
-          console.log("Number of parents:", parents.length);
-          console.log("Node fields:", node.fields);
+   // Update probability values
+  const updateProbability = (nodeId, rowId, colIndex, newValue) => {
+    setNetwork(prev => {
+      const updatedNodes = prev.nodes.map(node => {
+        if (node.id === nodeId) {
+          const parents = prev.edges
+            .filter(e => e.to === nodeId)
+            .map(e => prev.nodes.find(n => n.id === e.from))
+            .filter(Boolean);
           
-          const table = generateProbabilityTable(node);
-          const rowData = table.rows[rowId];
-          
-          const updatedFields = node.fields.map((field, fieldIndex) => {
-            // For child nodes, colIndex directly represents which field we're updating
-            if (fieldIndex === colIndex) {  // Changed from colIndex - parents.length
-              if (!field.conditionalProbabilities) {
-                field.conditionalProbabilities = [];
+          if (parents.length === 0) {
+            const updatedFields = node.fields.map((field, idx) => {
+              if (idx === rowId) {
+                return { ...field, value: newValue };
               }
-              
-              const probIndex = field.conditionalProbabilities.findIndex(
-                prob => JSON.stringify(prob.parentCombination) === JSON.stringify(rowData.parentValues)
-              );
-              
-              if (probIndex === -1) {
-                field.conditionalProbabilities.push({
-                  parentCombination: rowData.parentValues,
-                  value: newValue
-                });
-              } else {
-                field.conditionalProbabilities[probIndex].value = newValue;
+              return field;
+            });
+            return { ...node, fields: updatedFields };
+          } else {
+            const updatedFields = node.fields.map((field, fieldIndex) => {
+              if (fieldIndex === colIndex) {
+                const table = generateProbabilityTable(node);
+                const rowData = table.rows[rowId];
+                
+                if (!field.conditionalProbabilities) {
+                  field.conditionalProbabilities = generateConditionalProbabilities(node, prev);
+                }
+                
+                const probIndex = field.conditionalProbabilities.findIndex(
+                  prob => JSON.stringify(prob.parentCombination) === JSON.stringify(rowData.parentValues)
+                );
+                
+                if (probIndex === -1) {
+                  field.conditionalProbabilities.push({
+                    parentCombination: rowData.parentValues,
+                    value: newValue
+                  });
+                } else {
+                  field.conditionalProbabilities[probIndex].value = newValue;
+                }
               }
-            }
-            return field;
-          });
-          
-          console.log("Updating field index:", colIndex);
-          console.log("Parent values:", rowData.parentValues);
-          console.log("Updated fields:", updatedFields);
-          
-          return { ...node, fields: updatedFields };
+              return field;
+            });
+            
+            return { ...node, fields: updatedFields };
+          }
         }
-      }
-      return node;
+        return node;
+      });
+      
+      return { ...prev, nodes: updatedNodes };
     });
-    
-    return { ...prev, nodes: updatedNodes };
-  });
-};
+  };
+    // Monitor network changes
+  useEffect(() => {
+    console.log('Network state updated:', JSON.stringify(network, null, 2));
+  }, [network]);
+
   const generateProbabilityTable = (node) => {
     const parents = getNodeParents(node.id);
     
@@ -324,6 +392,7 @@ const updateProbability = (nodeId, rowId, colIndex, newValue) => {
       };
     }
   };
+
   return (
     <div className="w-full h-screen bg-gray-100">
       <div className="p-4 flex gap-2">
@@ -349,6 +418,26 @@ const updateProbability = (nodeId, rowId, colIndex, newValue) => {
         >
           Log Network
         </button>
+        <button 
+          onClick={async () => {
+            try {
+              const response = await fetch('http://localhost:5000/network', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(network)
+              });
+              const data = await response.json();
+              setSolvedProbabilities(data);
+            } catch (error) {
+              console.error('Error sending network to server:', error);
+            }
+          }}
+          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+        >
+          Solve
+        </button>      
       </div>
 
       <svg 
@@ -549,6 +638,27 @@ const updateProbability = (nodeId, rowId, colIndex, newValue) => {
           </div>
         </div>
       )}
+
+{solvedProbabilities && (
+  <div className="fixed bottom-0 left-0 right-0 bg-white p-4 shadow-lg">
+    <h3 className="text-lg font-bold mb-2 text-black">Marginal Probabilities</h3>
+    <div className="flex flex-wrap gap-4 text-black">
+      {Object.entries(solvedProbabilities).map(([nodeId, probs]) => {
+        const node = network.nodes.find(n => n.id === parseInt(nodeId));
+        return (
+          <div key={nodeId} className="bg-gray-100 p-2 rounded">
+            <h4 className="font-semibold">{node.name}</h4>
+            {Object.entries(probs).map(([field, prob]) => (
+              <div key={field} className="text-sm">
+                P({field}) = {prob.toFixed(4)}
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  </div>
+)}
 
 {altClickNode && (
   <div 

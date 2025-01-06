@@ -11,8 +11,12 @@ To install dependencies
 cd bayes
 
 npm install 
+
+pip install -r requirements.txt
 ```
 To run the application
 ```
 npm run dev
+
+python server/server.py
 ```
