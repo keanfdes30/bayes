@@ -20,3 +20,4 @@ npm run dev
 
 python server/server.py
 ```
+![image](https://github.com/user-attachments/assets/c1cd7f38-bc16-4384-8245-868aefc7ae5a)
