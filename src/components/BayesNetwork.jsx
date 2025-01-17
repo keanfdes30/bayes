@@ -763,8 +763,36 @@ const BayesNetwork = () => {
 
           <div className="flex justify-end mt-4">
             <button
-              onClick={() => setAltClickNode(null)}
-              className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+              onClick={async () => {
+                try {
+                  // Send updated network to backend
+                  const response = await fetch('http://localhost:5000/network', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      nodes: network.nodes,
+                      edges: network.edges
+                    })
+                  });
+
+                  if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                  }
+
+                  const updatedProbabilities = await response.json();
+                  
+                  // Update the solved probabilities state
+                  setSolvedProbabilities(updatedProbabilities);
+                  
+                  // Close the dialog
+                  setAltClickNode(null);
+                } catch (error) {
+                  console.error('Error updating probabilities:', error);
+                }
+              }}              
+                className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
             >
               Close
             </button>
